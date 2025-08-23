@@ -1,0 +1,767 @@
+---
+title: "Distractor Interference under Distribution Change"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    code_folding: hide
+  pdf_document:
+    toc: true
+date: "`r Sys.Date()`"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE, fig.width = 10, fig.height = 6)
+
+# Load required libraries
+library(tidyverse)
+library(ez)
+library(afex)
+library(emmeans)
+library(knitr)
+library(patchwork)
+library(scales)
+
+# Set ggplot theme
+theme_set(theme_classic() + 
+          theme(text = element_text(size = 12),
+                legend.position = "bottom",
+                strip.background = element_rect(fill = "white", color = "black")))
+
+# Custom color palette
+colors <- c("equal" = "#E69F00", "unequal" = "#56B4E9", 
+            "Equal" = "#E69F00", "Unequal Rare" = "#56B4E9", "Unequal Freq" = "#009E73")
+```
+
+## Overview
+
+In this study, we conducted an eye-tracking experiment using the additional singleton visual search paradigm with two groups (experiments). In the unequal-distribution group (Experiment 1), a salient distractor appeared four times more frequently in one region (frequent) than the other (rare) during the first half of the experiment. In the second half, both regions had equal distractor frequency, matching the rare region from the first half. In the equal-distribution group (Experiment 2), distractors appeared with equal frequency in both regions throughout. The design of the unequal group closely mirrored Experiment 2 of the Valsecchi and Turatto (2021) study (with some minor differences, see the methods section for details). The first half of the experiment is a conceptual replication of our previous study (Allenmark et al., 2022) but used their stimulus parameters (different-dimension distractor, random shape and color swapping) across both groups to ensure comparability. 
+
+Key analyses:
+- Baseline RT (distractor absent trials) and Error rates  
+- Distractor interference effects
+- Mixed ANOVA tests for all measures
+- three distinct phases of visual search based on eye movements.  
+
+Three key phases of visual search were defined based on eye movement data:
+
+1. **First Target Fixation (ftf_RT)**: Time from trial start until initial target fixation
+2. **Middle Target Fixation (mtf_RT)**: Time between initial and final target fixations  
+3. **Response Phase (resp_RT)**: Time from final target fixation until decision response
+
+The key research questions focus on how local and global statistical learning of distractor locations affects interference patterns across these temporal phases, comparing:
+- **Equal group**: Distractors appear equally often in all regions
+- **Unequal rare**: Distractors appear infrequently in this specific region (unequal group)
+- **Unequal frequent**: Distractors appear frequently in this region (unequal group)
+
+## Data Loading and Preprocessing
+
+```{r data-loading}
+# Load preprocessed data (RT)
+data <- read.csv('data/data.csv', row.names = 1)
+
+# Keep only correct responses for RT analysis
+analysis_data <- data |>
+  filter(SearchResponse.corr == 1 & !outlier)
+
+# Display data summary
+cat("=== DATA SUMMARY ===\n")
+cat("- Total trials:", nrow(data), "\n")
+cat("- Analysis trials:", nrow(analysis_data), 
+    sprintf("(%.1f%%)\n", nrow(analysis_data)/nrow(data)*100))
+cat("- Participants:", length(unique(analysis_data$participant)), "\n")
+
+# Group and block type counts
+cat("- Groups:\n")
+print(table(analysis_data$distr_cond))
+cat("- Block types:\n")
+print(table(analysis_data$blkType))
+
+# Load the preprocessed RT data from eye-tracking analysis
+rt_data_both_phases <- read.csv("data/rt_data_both_phases.csv")
+
+# Verify data structure
+str(rt_data_both_phases)
+head(rt_data_both_phases)
+
+# Check unique conditions
+unique(rt_data_both_phases$DistCond)
+unique(rt_data_both_phases$distr_cond)
+unique(rt_data_both_phases$blkType)
+unique(rt_data_both_phases$rt_type)
+
+```
+
+## 1. Baseline Response Times (Distractor Absent)
+
+Analyze baseline response times with:
+- **Between-subject factor**: Group (equal vs. unequal)
+- **Within-subject factor**: Block Type (Before change vs. After change)
+
+```{r baseline-rt}
+# Calculate baseline RT (distractor absent trials)
+baseline_rt <- analysis_data |>
+  filter(DistCond == "Absent") |>
+  group_by(participant, distr_cond, blkType) |>
+  summarise(rt_ms = mean(SearchResponse.rt) * 1000, .groups = "drop")
+
+# Summary statistics
+cat("=== BASELINE RT SUMMARY ===\n")
+rt_summary <- baseline_rt |>
+  group_by(distr_cond, blkType) |>
+  summarise(
+    Mean_RT = mean(rt_ms),
+    SD_RT = sd(rt_ms),
+    N = n(),
+    SEM = sd(rt_ms) / sqrt(n()),
+    .groups = "drop"
+  )
+
+print(kable(rt_summary, digits = 1))
+
+# Mixed ANOVA for baseline RT
+baseline_rt_clean <- baseline_rt |>
+  mutate(
+    participant = as.factor(participant),
+    distr_cond = as.factor(distr_cond),
+    blkType = as.factor(blkType)
+  )
+
+baseline_rt_anova <- ezANOVA(
+  data = baseline_rt_clean,
+  dv = rt_ms,
+  wid = participant,
+  within = blkType,
+  between = distr_cond,
+  detailed = TRUE
+)
+
+cat("\n=== MIXED ANOVA: BASELINE RT ===\n")
+cat("DV: Response Time (ms)\n")
+cat("Within-subject factor: blkType (Before change vs. After change)\n")
+cat("Between-subject factor: distr_cond (equal vs. unequal)\n\n")
+print(kable(baseline_rt_anova$ANOVA, digits = 4))
+```
+
+```{r baseline-rt-plot}
+# Create baseline RT visualization
+baseline_rt_plot <- baseline_rt |>
+  mutate(
+    Group = str_to_title(distr_cond),
+    Group = factor(Group, levels = c("Equal", "Unequal")),
+    Session = case_when(
+      blkType == "Before change" ~ "Before Change",
+      blkType == "After change" ~ "After Change"
+    ),
+    Session = factor(Session, levels = c("Before Change", "After Change"))
+  ) |>
+  ggplot(aes(x = Session, y = rt_ms, fill = Group)) +
+  stat_summary(fun = mean, geom = "bar", position = position_dodge(0.8), 
+               alpha = 0.8, color = 'black', width = 0.7) +
+  stat_summary(fun.data = mean_se, geom = "errorbar", 
+               position = position_dodge(0.8), width = 0.2) +
+  scale_fill_manual(values = colors, breaks = c("Equal", "Unequal"),
+    limits = c("Equal", "Unequal")) +
+  labs(
+    title = "Distractor Absent Baseline",
+    y = "Response Time (ms)",
+    x = "Session"
+  ) + 
+  theme(legend.position = 'top')
+
+baseline_rt_plot
+```
+
+## 2. Error Rates (Distractor Absent)
+
+```{r error-rates}
+# Calculate error rates (distractor absent trials)
+error_rates <- data |>
+  filter(DistCond == "Absent" & !is.na(SearchResponse.rt)) |>
+  group_by(participant, distr_cond, blkType) |>
+  summarise(error_rate = 1 - mean(SearchResponse.corr), .groups = "drop")
+
+# Summary statistics
+cat("=== ERROR RATE SUMMARY ===\n")
+error_summary <- error_rates |>
+  group_by(distr_cond, blkType) |>
+  summarise(
+    Mean_Error = mean(error_rate),
+    SD_Error = sd(error_rate),
+    N = n(),
+    SEM = sd(error_rate) / sqrt(n()),
+    .groups = "drop"
+  )
+
+print(kable(error_summary, digits = 4))
+
+# Mixed ANOVA for error rates
+error_rates_clean <- error_rates |>
+  mutate(
+    participant = as.factor(participant),
+    distr_cond = as.factor(distr_cond),
+    blkType = as.factor(blkType)
+  )
+
+error_rate_anova <- ezANOVA(
+  data = error_rates_clean,
+  dv = error_rate,
+  wid = participant,
+  within = blkType,
+  between = distr_cond,
+  detailed = TRUE
+)
+
+cat("\n=== MIXED ANOVA: ERROR RATES ===\n")
+cat("DV: Error Rate\n")
+cat("Within-subject factor: blkType (Before change vs. After change)\n")
+cat("Between-subject factor: distr_cond (equal vs. unequal)\n\n")
+print(kable(error_rate_anova$ANOVA, digits = 4))
+```
+
+```{r error-rates-plot}
+# Create error rate visualization
+error_rate_plot <- error_rates |>
+  mutate(
+    Group = str_to_title(distr_cond),
+    Session = case_when(
+      blkType == "Before change" ~ "Before Change",
+      blkType == "After change" ~ "After Change"
+    ),
+    Session = factor(Session, levels = c("Before Change", "After Change")),
+    error_rate_pct = error_rate * 100
+  ) |>
+  ggplot(aes(x = Session, y = error_rate_pct, fill = Group)) +
+  stat_summary(fun = mean, geom = "bar", position = position_dodge(0.8), 
+               alpha = 0.8, color = "black", width = 0.7) +
+  stat_summary(fun.data = mean_se, geom = "errorbar", 
+               position = position_dodge(0.8), width = 0.2) +
+  scale_fill_manual(values = colors) +
+  scale_y_continuous(limits = c(0, NA)) +
+  labs(
+    y = "Error Rate (%)",
+    x = "Session",
+    fill = "Group"
+  ) + 
+  theme(legend.position = "")
+
+print(error_rate_plot)
+```
+
+```{r combined-baseline-plot}
+# Combine baseline plots
+combined_baseline <- baseline_rt_plot / error_rate_plot +
+  plot_layout(heights = c(3, 1))
+
+ggsave("./Figures/baseline_combined.png", combined_baseline, 
+       width = 8, height = 6, dpi = 300)
+
+combined_baseline
+```
+
+## 3. Distractor Interference Analysis
+
+Calculate and analyze distractor interference effects:
+- **Equal group**: Average interference (Frequent + Rare) / 2 - Absent
+- **Unequal group**: Separate frequent and rare region interference
+- Additional statistics comparing regions within unequal group and between groups
+
+```{r interference-calculation_2}
+# Calculate RT by all distractor conditions for detailed interference analysis
+rt_by_condition <- analysis_data |>
+  group_by(participant, distr_cond, blkType, DistCond) |>
+  summarise(rt_ms = mean(SearchResponse.rt) * 1000, .groups = "drop") |>
+  pivot_wider(names_from = DistCond, values_from = rt_ms)
+
+# Calculate interference measures
+interference_detailed <- rt_by_condition |>
+  mutate(
+    # Average interference for equal group
+    avg_interference = (`Freq. dist.` + `Rare dist.`) / 2 - Absent,
+    # Individual interference effects for unequal group
+    rare_interference = `Rare dist.` - Absent,
+    freq_interference = `Freq. dist.` - Absent
+  )
+
+cat("=== DETAILED INTERFERENCE SUMMARY ===\n")
+
+# Equal group - average interference
+equal_interference <- interference_detailed |>
+  filter(distr_cond == "equal") |>
+  group_by(blkType) |>
+  summarise(
+    Mean = mean(avg_interference),
+    SD = sd(avg_interference),
+    N = n(),
+    SEM = sd(avg_interference) / sqrt(n()),
+    .groups = "drop"
+  )
+
+cat("Equal Group - Average Interference:\n")
+print(kable(equal_interference, digits = 1))
+
+# Unequal group - separate regions
+unequal_interference <- interference_detailed |>
+  filter(distr_cond == "unequal") |>
+  group_by(blkType) |>
+  summarise(
+    Freq_Mean = mean(freq_interference),
+    Freq_SD = sd(freq_interference),
+    Freq_N = n(),
+    Freq_SEM = sd(freq_interference) / sqrt(n()),
+    Rare_Mean = mean(rare_interference),
+    Rare_SD = sd(rare_interference), 
+    Rare_N = n(),
+    Rare_SEM = sd(rare_interference) / sqrt(n()),
+    .groups = "drop"
+  )
+
+cat("\nUnequal Group - Regional Interference:\n")
+print(kable(unequal_interference, digits = 1))
+```
+
+```{r interference-statistics}
+cat("=== ADDITIONAL INTERFERENCE STATISTICS ===\n\n")
+
+# 1. Equal group vs. Unequal rare region comparison
+equal_avg <- interference_detailed |> filter(distr_cond == "equal")
+unequal_rare <- interference_detailed |> filter(distr_cond == "unequal")
+
+# Create comparison dataset
+comparison_data <- bind_rows(
+  equal_avg |> 
+    select(participant, blkType, interference = avg_interference) |>
+    mutate(condition = "Equal_Avg"),
+  unequal_rare |> 
+    select(participant, blkType, interference = rare_interference) |>
+    mutate(condition = "Unequal_Rare")
+) |>
+  mutate(
+    participant = as.factor(participant),
+    blkType = as.factor(blkType),
+    condition = as.factor(condition)
+  )
+
+# Mixed ANOVA: Equal avg vs. Unequal rare
+comparison_anova <- ezANOVA(
+  data = comparison_data,
+  dv = interference,
+  wid = participant,
+  within = blkType,
+  between = condition,
+  detailed = TRUE
+)
+
+cat("1. MIXED ANOVA: EQUAL AVG vs. UNEQUAL RARE INTERFERENCE\n")
+print(kable(comparison_anova$ANOVA, digits = 4))
+cat("\n")
+
+# 2. Within unequal group: Frequent vs. Rare region comparison
+unequal_long <- unequal_rare |>
+  select(participant, blkType, freq_interference, rare_interference) |>
+  pivot_longer(cols = c(freq_interference, rare_interference),
+               names_to = "region_type", values_to = "interference") |>
+  mutate(
+    region = case_when(
+      region_type == "freq_interference" ~ "Frequent",
+      region_type == "rare_interference" ~ "Rare"
+    ),
+    participant = as.factor(participant),
+    blkType = as.factor(blkType),
+    region = as.factor(region)
+  )
+
+# rm ANOVA: Frequent vs. Rare within unequal group
+unequal_anova <- ezANOVA(
+  data = unequal_long,
+  dv = interference,
+  wid = participant,
+  within = .(blkType, region),
+  detailed = TRUE
+)
+
+cat("2. RM ANOVA: FREQUENT vs. RARE REGIONS (UNEQUAL GROUP)\n")
+print(kable(unequal_anova$ANOVA, digits = 4))
+cat("\n")
+
+# 3. Simple effect tests for specific comparisons
+cat("3. POST-HOC COMPARISONS\n")
+cat(rep("-", 30), "\n")
+
+# Before change: Equal avg vs. Unequal rare
+equal_before <- equal_avg |> 
+  filter(blkType == "Before change") |> 
+  pull(avg_interference)
+unequal_rare_before <- unequal_rare |> 
+  filter(blkType == "Before change") |> 
+  pull(rare_interference)
+
+test1 <- t.test(equal_before, unequal_rare_before, var.equal = FALSE)
+cat("Before change - Equal avg vs. Unequal rare:\n")
+cat(sprintf("Equal: M = %.1f ms, Unequal rare: M = %.1f ms\n", 
+           mean(equal_before), mean(unequal_rare_before)))
+cat(sprintf("t(%.1f) = %.3f, p = %.3f, d = %.3f\n\n", 
+           test1$parameter, test1$statistic, test1$p.value,
+           (mean(equal_before) - mean(unequal_rare_before)) / 
+           sqrt((var(equal_before) + var(unequal_rare_before))/2)))
+
+# Before change: Unequal frequent vs. rare (paired)
+unequal_freq_before <- unequal_rare |> 
+  filter(blkType == "Before change") |> 
+  pull(freq_interference)
+
+test2 <- t.test(unequal_freq_before, unequal_rare_before, paired = TRUE)
+cat("Before change - Unequal freq vs. rare (paired):\n")
+cat(sprintf("Frequent: M = %.1f ms, Rare: M = %.1f ms\n", 
+           mean(unequal_freq_before), mean(unequal_rare_before)))
+cat(sprintf("t(%.0f) = %.3f, p = %.3f\n\n", 
+           test2$parameter, test2$statistic, test2$p.value))
+```
+
+```{r interference-visualization}
+# Visualize detailed distractor interference
+plot_data <- bind_rows(
+  # Equal group - average interference
+  interference_detailed |>
+    filter(distr_cond == "equal") |>
+    select(participant, blkType, interference = avg_interference) |>
+    mutate(Condition = "Equal"),
+  
+  # Unequal group - rare region
+  interference_detailed |>
+    filter(distr_cond == "unequal") |>
+    select(participant, blkType, interference = rare_interference) |>
+    mutate(Condition = "Unequal Rare"),
+    
+  # Unequal group - frequent region  
+  interference_detailed |>
+    filter(distr_cond == "unequal") |>
+    select(participant, blkType, interference = freq_interference) |>
+    mutate(Condition = "Unequal Freq")
+) |>
+  mutate(
+    Session = case_when(
+      blkType == "Before change" ~ "Before Change",
+      blkType == "After change" ~ "After Change"
+    ),
+    Session = factor(Session, levels = c("Before Change", "After Change")),
+    Condition = factor(Condition, levels = c("Equal", "Unequal Rare", "Unequal Freq"))
+  )
+
+interference_plot <- plot_data |>
+  ggplot(aes(x = Session, y = interference, fill = Condition)) +
+  stat_summary(fun = mean, geom = "bar", position = position_dodge(0.8), 
+               alpha = 0.8, color = "black", width = 0.7) +
+  stat_summary(fun.data = mean_se, geom = "errorbar", 
+               position = position_dodge(0.8), width = 0.2) +
+  scale_fill_manual(values = colors) +
+  scale_y_continuous(limits = c(0, NA)) +
+  labs(
+    y = "Interference (ms)",
+    x = "Session",
+    fill = "Condition"
+  )
+
+ggsave("./Figures/interference_detailed.png", interference_plot, 
+       width = 8, height = 4, dpi = 300)
+
+print(interference_plot)
+```
+
+## 4. Phases of Visual Search Analysis
+
+
+### Data Transformation for Interference Analysis
+
+```{r interference-calculation}
+# Calculate distractor interference by comparing distractor-present vs distractor-absent conditions
+int_pc_data <- rt_data_both_phases |> 
+  spread(DistCond, rt) |> 
+  mutate(
+    # Average interference: mean of rare and frequent distractors minus absent baseline
+    avg_int = (`Freq. dist.` + `Rare dist.`)/2 - Absent,
+    
+    # Probability cueing effect: difference between rare and frequent distractor interference
+    pc = `Rare dist.` - `Freq. dist.`,
+    
+    # Individual region interference effects
+    rare_int = `Rare dist.` - Absent,
+    freq_int = `Freq. dist.` - Absent
+  ) |> 
+  select(-c(Absent, `Freq. dist.`, `Rare dist.`))
+
+# Transform to long format for analysis and visualization
+int_data_both <- int_pc_data |> 
+  group_by(blkType, distr_cond, rt_type) |>
+  select(-c(pc)) |>
+  gather("int_type", "int", -c("distr_cond", "rt_type", "participant", "blkType")) 
+
+# Create summary statistics for visualization
+sint_data_both <- int_data_both |> 
+  filter(
+    (int_type == "avg_int" & distr_cond == "equal") | 
+    (int_type != "avg_int" & distr_cond == "unequal")
+  ) |>
+  group_by(blkType, distr_cond, rt_type, int_type) |> 
+  summarize(
+    mint = mean(int), 
+    sint = sd(int)/sqrt(n()-1),
+    .groups = "drop"
+  )
+
+head(sint_data_both)
+```
+
+## 5. Visualization of Distractor Interference across Phases
+
+```{r visualization, fig.width=12, fig.height=8}
+# Create visualization with white background and proper ordering
+int_phases_fig <- sint_data_both |> 
+  filter(rt_type != "rt") |>  # Exclude total RT, focus on phase-specific measures
+  mutate(
+    # Create meaningful condition labels for visualization
+    condition_combo = case_when(
+      int_type == "avg_int" & distr_cond == "equal" ~ "Equal",
+      int_type == "rare_int" & distr_cond == "unequal" ~ "Unequal Rare",
+      int_type == "freq_int" & distr_cond == "unequal" ~ "Unequal Frequent"
+    ),
+    # Ensure proper ordering
+    condition_combo = factor(condition_combo, 
+                            levels = c("Equal", "Unequal Rare", "Unequal Frequent")),
+    # Clean phase labels
+    rt_type = factor(rt_type, 
+                    levels = c("ftf_RT", "mtf_RT", "resp_RT"),
+                    labels = c("First Target Fixation", "Between Fixations", "Response Phase")),
+    # Proper ordering for blkType
+    blkType = factor(blkType,
+                    levels = c("Before change", "After change"))
+  ) |>
+  ggplot(aes(x = condition_combo, y = mint, fill = condition_combo)) +
+  geom_col(color = "black", alpha = 0.8) +
+  geom_errorbar(aes(ymin = mint - sint, ymax = mint + sint), 
+                width = 0.3, size = 0.7) +
+  facet_grid(blkType ~ rt_type, scales = "free_y") +
+  theme_classic() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    legend.position = "bottom",
+    panel.background = element_rect(fill = "white"),
+    strip.background = element_blank(),
+    text = element_text(size = 12)
+  ) +
+  labs(
+    x = "Distractor Condition",
+    y = "Distractor Interference (ms)",
+    fill = "Condition"
+  ) +
+  scale_fill_manual(values = c("Equal" = "#E69F00", 
+                              "Unequal Rare" = "#56B4E9", 
+                              "Unequal Frequent" = "#009E73"))
+# save the figure
+ggsave("./Figures/distractor_interference_phases.png", 
+       plot = int_phases_fig, width = 8, height = 6, dpi = 300)
+print(int_phases_fig)
+```
+
+## 6. Statistical Analysis for phases : Mixed-Design ANOVAs
+
+### Data Preparation for ezANOVA
+
+```{r anova-prep}
+# Prepare data for ANOVA analysis
+# Need to create proper data structure for mixed-design ANOVA
+
+# For Equal vs Unequal Rare comparison (between-subjects: equal vs unequal)
+equal_rare_data <- int_data_both |>
+  filter(
+    (distr_cond == "equal" & int_type == "avg_int") |
+    (distr_cond == "unequal" & int_type == "rare_int")
+  ) |>
+  mutate(
+    # Create group factor for between-subjects comparison
+    group = ifelse(distr_cond == "equal", "Equal", "Unequal"),
+    # Ensure proper factor ordering
+    blkType = factor(blkType, levels = c("Before change", "After change")),
+    rt_type = factor(rt_type, levels = c("ftf_RT", "mtf_RT", "resp_RT")),
+    participant = as.factor(participant)
+  )
+
+# For Unequal Rare vs Frequent comparison (within-subjects within unequal group)
+unequal_within_data <- int_data_both |>
+  filter(
+    distr_cond == "unequal" & int_type %in% c("rare_int", "freq_int")
+  ) |>
+  mutate(
+    # Create region factor for within-subjects comparison
+    region = ifelse(int_type == "rare_int", "Rare", "Frequent"),
+    region = factor(region, levels = c("Rare", "Frequent")),
+    # Ensure proper factor ordering
+    blkType = factor(blkType, levels = c("Before change", "After change")),
+    rt_type = factor(rt_type, levels = c("ftf_RT", "mtf_RT", "resp_RT")),
+    participant = as.factor(participant)
+  )
+
+head(equal_rare_data)
+head(unequal_within_data)
+```
+
+### 6.1 First Target Fixation Phase (ftf_RT)
+
+This phase captures the initial search efficiency - how quickly attention finds the target for the first time.
+
+```{r ftf-anova}
+# Analysis 1: Equal vs Unequal Rare (Mixed design: Group x Block Type)
+ftf_equal_rare <- equal_rare_data |> filter(rt_type == "ftf_RT")
+
+#mean interference
+ftf_equal_rare |> group_by(group, blkType) |> 
+  summarize(mean_int = mean(int), sd_int = sd(int), .groups = "drop")
+
+ftf_anova1 <- ezANOVA(
+  data = ftf_equal_rare,
+  dv = int,
+  wid = participant,
+  between = group,
+  within = blkType,
+  detailed = TRUE
+)
+
+cat("=== FIRST TARGET FIXATION PHASE ===\n\n")
+cat("Analysis 1: Equal vs Unequal Rare\n")
+cat("Mixed ANOVA (Group x Block Type)\n")
+print(ftf_anova1$ANOVA)
+cat("\n")
+
+# Analysis 2: Unequal Rare vs Frequent (Repeated measures: Region x Block Type)
+ftf_unequal_within <- unequal_within_data |> filter(rt_type == "ftf_RT")
+
+ftf_anova2 <- ezANOVA(
+  data = ftf_unequal_within,
+  dv = int,
+  wid = participant,
+  within = .(region, blkType),
+  detailed = TRUE
+)
+# mean interference
+ftf_unequal_within |> group_by(region, blkType) |> 
+  summarize(mean_int = mean(int), sd_int = sd(int), .groups = "drop")
+
+cat("Analysis 2: Unequal Rare vs Frequent\n")
+cat("Repeated Measures ANOVA (Region x Block Type)\n")
+print(ftf_anova2$ANOVA)
+cat("\n")
+```
+
+### 6.2 Middle Target Fixation Phase (mtf_RT)
+
+This phase captures re-fixation and verification processes between initial and final target fixations.
+
+```{r mtf-anova}
+# Analysis 1: Equal vs Unequal Rare (Mixed design: Group x Block Type)
+mtf_equal_rare <- equal_rare_data |> filter(rt_type == "mtf_RT")
+
+mtf_anova1 <- ezANOVA(
+  data = mtf_equal_rare,
+  dv = int,
+  wid = participant,
+  between = group,
+  within = blkType,
+  detailed = TRUE
+)
+
+cat("=== MIDDLE TARGET FIXATION PHASE ===\n\n")
+cat("Analysis 1: Equal vs Unequal Rare\n")
+cat("Mixed ANOVA (Group x Block Type)\n")
+print(mtf_anova1$ANOVA)
+cat("\n")
+
+# Analysis 2: Unequal Rare vs Frequent (Repeated measures: Region x Block Type)
+mtf_unequal_within <- unequal_within_data |> filter(rt_type == "mtf_RT")
+
+mtf_anova2 <- ezANOVA(
+  data = mtf_unequal_within,
+  dv = int,
+  wid = participant,
+  within = .(region, blkType),
+  detailed = TRUE
+)
+
+cat("Analysis 2: Unequal Rare vs Frequent\n")
+cat("Repeated Measures ANOVA (Region x Block Type)\n")
+print(mtf_anova2$ANOVA)
+cat("\n")
+```
+
+### 6.3 Response Phase (resp_RT)
+
+This phase captures the final decision-making processes after the target has been localized and fixated.
+
+```{r resp-anova}
+# Analysis 1: Equal vs Unequal Rare (Mixed design: Group x Block Type)
+resp_equal_rare <- equal_rare_data |> filter(rt_type == "resp_RT")
+
+# mean interference
+resp_equal_rare |> group_by(group) |> 
+  summarize(mean_int = mean(int), sd_int = sd(int), .groups = "drop")
+
+resp_anova1 <- ezANOVA(
+  data = resp_equal_rare,
+  dv = int,
+  wid = participant,
+  between = group,
+  within = blkType,
+  detailed = TRUE
+)
+
+cat("=== RESPONSE PHASE ===\n\n")
+cat("Analysis 1: Equal vs Unequal Rare\n")
+cat("Mixed ANOVA (Group x Block Type)\n")
+print(resp_anova1$ANOVA)
+cat("\n")
+
+# Analysis 2: Unequal Rare vs Frequent (Repeated measures: Region x Block Type)
+resp_unequal_within <- unequal_within_data |> filter(rt_type == "resp_RT")
+
+# mean interference
+resp_unequal_within |> group_by(region, blkType) |> 
+  summarize(mean_int = mean(int), sd_int = sd(int), .groups = "drop")
+
+resp_anova2 <- ezANOVA(
+  data = resp_unequal_within,
+  dv = int,
+  wid = participant,
+  within = .(region, blkType),
+  detailed = TRUE
+)
+
+cat("Analysis 2: Unequal Rare vs Frequent\n")
+cat("Repeated Measures ANOVA (Region x Block Type)\n")
+print(resp_anova2$ANOVA)
+cat("\n")
+```
+
+### 6.3 Summary of Descriptive Statistics
+
+```{r descriptives}
+# Calculate means and SDs for each condition and phase
+descriptives <- sint_data_both |>
+  filter(rt_type != "rt") |>
+  mutate(
+    condition_combo = case_when(
+      int_type == "avg_int" & distr_cond == "equal" ~ "Equal",
+      int_type == "rare_int" & distr_cond == "unequal" ~ "Unequal Rare",
+      int_type == "freq_int" & distr_cond == "unequal" ~ "Unequal Frequent"
+    )
+  ) |>
+  select(rt_type, blkType, condition_combo, mint, sint) |>
+  arrange(rt_type, blkType, condition_combo)
+
+cat("=== DESCRIPTIVE STATISTICS ===\n")
+cat("Mean interference (ms) ± SEM\n\n")
+print(descriptives)
+```
+
+```{r session-info}
+# Session information
+sessionInfo()
+```
