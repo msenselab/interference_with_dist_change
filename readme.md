@@ -37,14 +37,8 @@ This repository presents visual search experiments exploring how the local and g
    - Target position equally distributed across all 8 locations for each distractor condition
    - All feature combinations systematically varied (16 conditions)
 
-### Research Questions:
-This design tests whether participants develop **spatial biases** based on distractor frequency, and whether these biases **transfer** when the distribution changes in session 2. The key dependent variables would be search efficiency (RT/accuracy) as a function of target location relative to the frequent/rare distractor regions.
+## Repo Structure
 
-## Repository Structure
+- `data/`: Contains preprocessed data files.
+- `analysis_dist_change.Rmd`: R Markdown file for data analysis and visualization.
 
-- **Experiment 1/**: First experiment files and data
-- **Experiment 2/**: Second experiment files and data  
-- **Analysis scripts**: `dataana*.R` and `eye_dataana*.R` files
-- **functions.R**: Shared utility functions
-- **sequences/**: Experimental sequence files
-- **Figures/**: Generated plots and visualizations
