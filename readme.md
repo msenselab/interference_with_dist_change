@@ -1,44 +1,77 @@
-# Distribution Change Studies
+# Distractor Interference under Distribution Change
 
 ## Overview
 
-This repository presents visual search experiments exploring how the local and global distribution of distractors influences search performance and attention allocation. We conducted an eye-tracking study using a singleton visual search task with two participant groups. In the first group—the “unequal distribution” group (Experiment 1)—the singleton distractor appeared four times more often in one region (the frequent distractor region) than in another (the rare distractor region) during the experiment’s first half. In the second half, while the rare region’s distractor frequency remained constant, the frequent region’s rate dropped to match that of the rare region. The second group—the “equal distribution” group (Experiment 2)—experienced a consistent low-frequency distractor occurrence across both regions throughout the entire experiment, matching the lower frequency used in the rare region of Experiment 1.
+This repository contains a visual search experiment examining how local and global distribution of distractors influences search performance and attention allocation. The study uses eye-tracking data from a singleton visual search task with two experimental groups investigating adaptation to changing distractor distributions.
 
-**Core Design**: 8-location circular visual search task investigating how the distribution of distractors affects search performance. The design for the uneqal group (Experiment 1) mirrors Valsecchi and Turatto (2021) Experiment 2 with some minor differences. The design is also a conceptual replication of Allenmark et al. (2022). 
+**Core Design**: Eye-tracking experiment using an additional singleton visual search paradigm with 8-location circular arrangement. The unequal-distribution group (Experiment 1) closely mirrors Valsecchi and Turatto (2021) Experiment 2, while serving as a conceptual replication of Allenmark et al. (2022).
 
-### Key Manipulations:
+### Experimental Groups
 
-1. **Spatial Distribution**:
-   - **8 positions** arranged in a circle (positions 1-8)
-   - **Frequency regions**: Bottom half (1-4) vs Top half (5-8)
-   - **Counterbalanced**: Odd sequences (1,3,5...) have frequent distractors in top half, even sequences (2,4,6...) in bottom half
+**Experiment 1 (Unequal Distribution)**:
+- First half: Distractors appear 4x more frequently in one region (frequent) than another (rare)
+- Second half: Both regions have equal distractor frequency, matching the rare region frequency from first half
 
-2. **Distractor Position Conditions**:
-   - **Frequent distractor region**: 4x more likely to contain distractors
-   - **Rare distractor region**: 1x baseline probability
-   - **Distractor absent**: No distractor present (position 0)
+**Experiment 2 (Equal Distribution)**:
+- Throughout experiment: Distractors appear with equal frequency in both regions
+- Control condition matching the second half of Experiment 1
+
+### Key Manipulations
+
+1. **Spatial Layout**:
+   - 8 positions arranged in a circle (positions 1-8)
+   - Frequency regions: Bottom half (1-4) vs Top half (5-8)
+   - Counterbalanced across participants
+
+2. **Distractor Conditions**:
+   - Frequent distractor region (4x probability in first half)
+   - Rare distractor region (1x baseline probability)
+   - Distractor absent trials (position 0)
 
 3. **Trial Structure**:
-   - **960 trials** total per participant
-   - **2 sessions** of 480 trials each
-   - **16 blocks** of 60 trials
+   - 960 trials total per participant
+   - 2 sessions of 480 trials each
+   - 16 blocks of 60 trials
 
-4. **Session Distribution**:
-   - **Session 1**: Heavy bias toward frequent region (4:1 ratio)
-   - **Session 2**: Reduced bias (1:1 ratio) - adaptation/transfer test
+4. **Visual Features**:
+   - Colors: Red vs Green (target/distractor always opposite)
+   - Shapes: 2 types (coded as 0/1)
+   - Line orientations: 0° vs 90°
 
-5. **Visual Features**:
-   - **Colors**: Red vs Green (always opposite for target/distractor)
-   - **Shapes**: 2 shape types (coded as 0/1)
-   - **Line orientations**: 0° vs 90° (independent for target/distractor)
+## Analysis Framework
 
-6. **Constraints**:
-   - Target and distractor never appear at same location
-   - Target position equally distributed across all 8 locations for each distractor condition
-   - All feature combinations systematically varied (16 conditions)
+The study analyzes three distinct phases of visual search based on eye-tracking data:
 
-## Repo Structure
+1. **First Target Fixation (ftf_RT)**: Time from trial start until initial target fixation
+2. **Middle Target Fixation (mtf_RT)**: Time between initial and final target fixations  
+3. **Response Phase (resp_RT)**: Time from final target fixation until decision response
 
-- `data/`: Contains preprocessed data files.
-- `analysis_dist_change.Rmd`: R Markdown file for data analysis and visualization.
+
+## Repository Structure
+
+### Data Files
+- `data/data.csv` - Raw experimental data with trial-level information
+- `data/rt_data_both_phases.csv` - Preprocessed data for visual search phase analysis
+- `data/qdata.csv` - Questionnaire data
+
+### Analysis & Visualization
+- `analysis_dist_change.Rmd` - Main R Markdown analysis file
+- `analysis_dist_change.html` - Rendered HTML report with interactive elements
+- `Figures/` - Publication-ready plots generated from analysis
+  - `baseline_combined.png` - Baseline performance across conditions
+  - `distractor_interference_phases.png` - Interference effects by search phase
+  - `interference_detailed.png` - Detailed interference analysis
+
+
+#### Interactive Analysis
+Open `analysis_dist_change.Rmd` in RStudio and knit or run chunks interactively.
+
+## Key Variables
+
+- **DistPos**: Distractor position (0 = absent, 1-8 = spatial positions)
+- **TarPos**: Target position (1-8)
+- **group**: Experimental condition ("unequal" vs "equal" distribution)
+- **blkType**: Experimental phase ("Before change" vs "After change")
+- **freq_region**: Spatial region classification ("Top" vs "Bottom")
+- **DistCond**: Distractor condition ("Absent", "Freq. dist.", "Rare dist.")
 
