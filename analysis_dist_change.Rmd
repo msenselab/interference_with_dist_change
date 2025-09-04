@@ -1,12 +1,10 @@
 ---
 title: "Distractor Interference under Distribution Change"
-output:
+output: 
   html_document:
     toc: true
     toc_float: true
     code_folding: hide
-  pdf_document:
-    toc: true
 date: "`r Sys.Date()`"
 ---
 
@@ -21,6 +19,7 @@ library(emmeans)
 library(knitr)
 library(patchwork)
 library(scales)
+library(ggsignif)
 
 # Set ggplot theme
 theme_set(theme_classic() + 
@@ -160,6 +159,8 @@ baseline_rt_plot <- baseline_rt |>
                alpha = 0.8, color = 'black', width = 0.7) +
   stat_summary(fun.data = mean_se, geom = "errorbar", 
                position = position_dodge(0.8), width = 0.2) +
+  geom_signif(comparisons = list(c("Before Change", "After Change")),
+              annotations = "***", y_position = 1200, tip_length = 0.01) +
   scale_fill_manual(values = colors, breaks = c("Equal", "Unequal"),
     limits = c("Equal", "Unequal")) +
   labs(
@@ -266,7 +267,7 @@ Calculate and analyze distractor interference effects:
 - **Unequal group**: Separate frequent and rare region interference
 - Additional statistics comparing regions within unequal group and between groups
 
-```{r interference-calculation_2}
+```{r interference-calculation}
 # Calculate RT by all distractor conditions for detailed interference analysis
 rt_by_condition <- analysis_data |>
   group_by(participant, distr_cond, blkType, DistCond) |>
@@ -454,6 +455,18 @@ interference_plot <- plot_data |>
                alpha = 0.8, color = "black", width = 0.7) +
   stat_summary(fun.data = mean_se, geom = "errorbar", 
                position = position_dodge(0.8), width = 0.2) +
+  geom_signif(data = subset(plot_data, Session == "Before Change"),
+              aes(xmin = 0.75, xmax = 1.0, annotations = "*", y_position = 285),
+              manual = TRUE, tip_length = 0.01, textsize = 4) +
+  geom_signif(data = subset(plot_data, Session == "After Change"),
+              aes(xmin = 1.75, xmax = 2.0, annotations = "n.s.", y_position = 280),
+              manual = TRUE, tip_length = 0.01, textsize = 3) +
+  geom_signif(data = subset(plot_data, Session == "Before Change"),
+              aes(xmin = 1.0, xmax = 1.25, annotations = "*", y_position = 240),
+              manual = TRUE, tip_length = 0.01, textsize = 4) +
+  geom_signif(data = subset(plot_data, Session == "After Change"),
+              aes(xmin = 2.0, xmax = 2.25, annotations = "*", y_position = 260),
+              manual = TRUE, tip_length = 0.01, textsize = 4) +
   scale_fill_manual(values = colors) +
   scale_y_continuous(limits = c(0, NA)) +
   labs(
@@ -468,15 +481,34 @@ ggsave("./Figures/interference_detailed.png", interference_plot,
 print(interference_plot)
 ```
 
+## 3.5 Questionaire Data Summary
+```{r questionaire}
+# load data
+qdata <- read.csv("data/qdata.csv")
+qdata <- mutate(qdata, Q1_aware=ifelse(Q1_resp==2, 1, 0), Q3_aware=ifelse(Q3_resp==2, 1, 0))
+qdata %>% group_by(distr_cond) %>% summarize(sum(Q1_aware), sum(Q2_corr), sum(Q3_aware))
+qdata %>% group_by(distr_cond, Q1_aware) %>% summarize(q2c=sum(Q2_corr), N=n(), q2c/N)
+
+qdata_awareness <- mutate(filter(qdata, distr_cond == "unequal"), awareness = ifelse(Q1_aware == 1 & Q2_corr == 1, "Aware", "Unaware"))
+int_data_awareness <- full_join(filter(interference_detailed, distr_cond == "unequal"), qdata_awareness, by = c("participant", "distr_cond"))
+
+group_by(int_data_awareness, awareness) %>% summarize(int = mean(avg_interference), sd = sd(avg_interference), n = n(), sem = sd/sqrt(n))
+
+# t-test for awareness effect on average interference
+t.test(filter(int_data_awareness, awareness == "Aware")$avg_interference, filter(int_data_awareness, awareness == "Unaware")$avg_interference, var.equal = TRUE)
+
+#filter(int_data_awareness, type != "avg_int") %>% ezANOVA(dv = int, wid = participant, within = type, between = awareness)
+```
+
 ## 4. Phases of Visual Search Analysis
 
 
 ### Data Transformation for Interference Analysis
 
-```{r interference-calculation}
+```{r interference-calculation-2}
 # Calculate distractor interference by comparing distractor-present vs distractor-absent conditions
-int_pc_data <- rt_data_both_phases |> 
-  spread(DistCond, rt) |> 
+int_pc_data <- rt_data_both_phases %>% 
+  spread(DistCond, rt) %>% 
   mutate(
     # Average interference: mean of rare and frequent distractors minus absent baseline
     avg_int = (`Freq. dist.` + `Rare dist.`)/2 - Absent,
@@ -487,22 +519,22 @@ int_pc_data <- rt_data_both_phases |>
     # Individual region interference effects
     rare_int = `Rare dist.` - Absent,
     freq_int = `Freq. dist.` - Absent
-  ) |> 
+  ) %>% 
   select(-c(Absent, `Freq. dist.`, `Rare dist.`))
 
 # Transform to long format for analysis and visualization
-int_data_both <- int_pc_data |> 
-  group_by(blkType, distr_cond, rt_type) |>
-  select(-c(pc)) |>
+int_data_both <- int_pc_data %>% 
+  group_by(blkType, distr_cond, rt_type) %>%
+  select(-c(pc)) %>%
   gather("int_type", "int", -c("distr_cond", "rt_type", "participant", "blkType")) 
 
 # Create summary statistics for visualization
-sint_data_both <- int_data_both |> 
+sint_data_both <- int_data_both %>% 
   filter(
     (int_type == "avg_int" & distr_cond == "equal") | 
     (int_type != "avg_int" & distr_cond == "unequal")
-  ) |>
-  group_by(blkType, distr_cond, rt_type, int_type) |> 
+  ) %>%
+  group_by(blkType, distr_cond, rt_type, int_type) %>% 
   summarize(
     mint = mean(int), 
     sint = sd(int)/sqrt(n()-1),
@@ -516,8 +548,8 @@ head(sint_data_both)
 
 ```{r visualization, fig.width=12, fig.height=8}
 # Create visualization with white background and proper ordering
-int_phases_fig <- sint_data_both |> 
-  filter(rt_type != "rt") |>  # Exclude total RT, focus on phase-specific measures
+int_phases_data <- sint_data_both %>% 
+  filter(rt_type != "rt") %>%  # Exclude total RT, focus on phase-specific measures
   mutate(
     # Create meaningful condition labels for visualization
     condition_combo = case_when(
@@ -535,12 +567,21 @@ int_phases_fig <- sint_data_both |>
     # Proper ordering for blkType
     blkType = factor(blkType,
                     levels = c("Before change", "After change"))
-  ) |>
+  ) 
+
+  int_phases_fig = int_phases_data |>
   ggplot(aes(x = condition_combo, y = mint, fill = condition_combo)) +
   geom_col(color = "black", alpha = 0.8) +
   geom_errorbar(aes(ymin = mint - sint, ymax = mint + sint), 
                 width = 0.3, size = 0.7) +
   facet_grid(blkType ~ rt_type, scales = "free_y") +
+  geom_signif(data = subset(int_phases_data, rt_type == "Response Phase"),
+              aes(xmin = 1, xmax = 2.0, annotations = "***", y_position = 80),
+              manual = TRUE, tip_length = 0.01, textsize = 4) +
+  geom_signif(data = subset(int_phases_data, rt_type == "First Target Fixation"),
+              aes(xmin = 1, xmax = 2.0, annotations = "n.s.", y_position = 250),
+              manual = TRUE, tip_length = 0.01, textsize = 4) +
+  scale_y_continuous(limits = c(0, NA)) +
   theme_classic() +
   theme(
     axis.text.x = element_text(angle = 45, hjust = 1),
@@ -572,11 +613,11 @@ print(int_phases_fig)
 # Need to create proper data structure for mixed-design ANOVA
 
 # For Equal vs Unequal Rare comparison (between-subjects: equal vs unequal)
-equal_rare_data <- int_data_both |>
+equal_rare_data <- int_data_both %>%
   filter(
     (distr_cond == "equal" & int_type == "avg_int") |
     (distr_cond == "unequal" & int_type == "rare_int")
-  ) |>
+  ) %>%
   mutate(
     # Create group factor for between-subjects comparison
     group = ifelse(distr_cond == "equal", "Equal", "Unequal"),
@@ -587,10 +628,10 @@ equal_rare_data <- int_data_both |>
   )
 
 # For Unequal Rare vs Frequent comparison (within-subjects within unequal group)
-unequal_within_data <- int_data_both |>
+unequal_within_data <- int_data_both %>%
   filter(
     distr_cond == "unequal" & int_type %in% c("rare_int", "freq_int")
-  ) |>
+  ) %>%
   mutate(
     # Create region factor for within-subjects comparison
     region = ifelse(int_type == "rare_int", "Rare", "Frequent"),
@@ -611,7 +652,7 @@ This phase captures the initial search efficiency - how quickly attention finds 
 
 ```{r ftf-anova}
 # Analysis 1: Equal vs Unequal Rare (Mixed design: Group x Block Type)
-ftf_equal_rare <- equal_rare_data |> filter(rt_type == "ftf_RT")
+ftf_equal_rare <- equal_rare_data %>% filter(rt_type == "ftf_RT")
 
 #mean interference
 ftf_equal_rare |> group_by(group, blkType) |> 
@@ -633,7 +674,7 @@ print(ftf_anova1$ANOVA)
 cat("\n")
 
 # Analysis 2: Unequal Rare vs Frequent (Repeated measures: Region x Block Type)
-ftf_unequal_within <- unequal_within_data |> filter(rt_type == "ftf_RT")
+ftf_unequal_within <- unequal_within_data %>% filter(rt_type == "ftf_RT")
 
 ftf_anova2 <- ezANOVA(
   data = ftf_unequal_within,
@@ -658,7 +699,7 @@ This phase captures re-fixation and verification processes between initial and f
 
 ```{r mtf-anova}
 # Analysis 1: Equal vs Unequal Rare (Mixed design: Group x Block Type)
-mtf_equal_rare <- equal_rare_data |> filter(rt_type == "mtf_RT")
+mtf_equal_rare <- equal_rare_data %>% filter(rt_type == "mtf_RT")
 
 mtf_anova1 <- ezANOVA(
   data = mtf_equal_rare,
@@ -676,7 +717,7 @@ print(mtf_anova1$ANOVA)
 cat("\n")
 
 # Analysis 2: Unequal Rare vs Frequent (Repeated measures: Region x Block Type)
-mtf_unequal_within <- unequal_within_data |> filter(rt_type == "mtf_RT")
+mtf_unequal_within <- unequal_within_data %>% filter(rt_type == "mtf_RT")
 
 mtf_anova2 <- ezANOVA(
   data = mtf_unequal_within,
@@ -698,7 +739,7 @@ This phase captures the final decision-making processes after the target has bee
 
 ```{r resp-anova}
 # Analysis 1: Equal vs Unequal Rare (Mixed design: Group x Block Type)
-resp_equal_rare <- equal_rare_data |> filter(rt_type == "resp_RT")
+resp_equal_rare <- equal_rare_data %>% filter(rt_type == "resp_RT")
 
 # mean interference
 resp_equal_rare |> group_by(group) |> 
@@ -720,7 +761,7 @@ print(resp_anova1$ANOVA)
 cat("\n")
 
 # Analysis 2: Unequal Rare vs Frequent (Repeated measures: Region x Block Type)
-resp_unequal_within <- unequal_within_data |> filter(rt_type == "resp_RT")
+resp_unequal_within <- unequal_within_data %>% filter(rt_type == "resp_RT")
 
 # mean interference
 resp_unequal_within |> group_by(region, blkType) |> 
@@ -744,16 +785,16 @@ cat("\n")
 
 ```{r descriptives}
 # Calculate means and SDs for each condition and phase
-descriptives <- sint_data_both |>
-  filter(rt_type != "rt") |>
+descriptives <- sint_data_both %>%
+  filter(rt_type != "rt") %>%
   mutate(
     condition_combo = case_when(
       int_type == "avg_int" & distr_cond == "equal" ~ "Equal",
       int_type == "rare_int" & distr_cond == "unequal" ~ "Unequal Rare",
       int_type == "freq_int" & distr_cond == "unequal" ~ "Unequal Frequent"
     )
-  ) |>
-  select(rt_type, blkType, condition_combo, mint, sint) |>
+  ) %>%
+  select(rt_type, blkType, condition_combo, mint, sint) %>%
   arrange(rt_type, blkType, condition_combo)
 
 cat("=== DESCRIPTIVE STATISTICS ===\n")
